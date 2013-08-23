@@ -1,0 +1,16 @@
+{
+  "name": "bugzealot",
+  "version": "0.1.1",
+  "dependencies": {
+    "xmlrpc": "1.1.x",
+    "oscar": "*",
+    "winston": "0.7.x",
+    "coffee-script": "*",
+    "async": "*",
+    "nodeunit": "*",
+    "ejs": "*",
+    "cradle": "*",
+    "underscore": "*",
+    "columnizer": "*"
+  }
+}

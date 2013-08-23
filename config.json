@@ -1,0 +1,11 @@
+{
+  "bugzilla": {
+    "server": "192.168.56.101",
+    "port": 80
+  },
+  "icq": {
+    "login": "675819279",
+    "login1": "Bug Zealot",
+    "password": "chubaka1"
+  }
+}

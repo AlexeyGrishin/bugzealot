@@ -1,0 +1,3 @@
+<% if (bugs.length == 0) {%>No bugs found<% } %>
+<% bugs.forEach(function(b) { %>#<%= b.id %>    <%= b.priority %>/<%= b.bug_severity %>     <%= b.product %>: <%= b.summary %>  [<%= b.status %>] -> <%= b.assigned_to %>
+<% }); %>

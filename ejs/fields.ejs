@@ -1,0 +1,2 @@
+<% fields.forEach(function(f) { %><% if (f.values) { %><%= f.name %> : <%=: f.values | map:'name' | join:', ' %>
+<% } %><% }); %>
