@@ -52,14 +52,18 @@ class BugzillaClient
           cb()
 
   getBug: (bug, cb) ->
+    @getBugs [bug], (err, result) ->
+      return cb(err) if err
+      return cb("Cannot find bug with id #{bug}") if result.length == 0
+      cb(null, result[0])
+
+  getBugs: (bugs, cb) ->
     return if @_notLoggedIn(cb)
-    bug = [bug] unless _.isArray(bug)
     @_doCall "Bug.get", {
-      ids: bug
+      ids: bugs
     }, (err, result) ->
       return cb(err) if err
-      return cb("Cannot find bug with id #{bug}") if result.bugs.length == 0
-      cb(null, result.bugs[0])
+      cb(null, result.bugs)
 
   listBugs: (options, cb) ->
     @_parseCriterias options, (err, criterias) =>

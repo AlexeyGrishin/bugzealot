@@ -4,9 +4,9 @@
     "port": 80
   },
   "icq": {
-    "login": "675819279",
-    "login1": "Bug Zealot",
-    "password": "chubaka1"
+    "off": true,
+    "login": "---ICQ NUMBER---",
+    "password": "---ICQ PASSWORD---"
   },
   "couchdb": {
     "url": "http://localhost",
