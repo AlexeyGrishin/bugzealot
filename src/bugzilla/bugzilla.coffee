@@ -11,9 +11,7 @@ class BugzillaClient
     @client = xmlrpc.createClient({url: url, cookies: true});
     @user = null
     @fields = null
-    @options = {
-      completedInDev: "CONFIRMED"
-    }
+    @resultParsers = {}
 
   logout: (cb) ->
     @user = null
@@ -55,6 +53,7 @@ class BugzillaClient
 
   getBug: (bug, cb) ->
     return if @_notLoggedIn(cb)
+    bug = [bug] unless _.isArray(bug)
     @_doCall "Bug.get", {
       ids: bug
     }, (err, result) ->
@@ -83,8 +82,6 @@ class BugzillaClient
       else
         false
 
-
-
     for value in options
       continue if checkAssigned(value)
       field = @fields.byValue[value]
@@ -98,42 +95,98 @@ class BugzillaClient
           else
             return cb("'#{value} is ambigous: #{possibleValues.join(',')}")
 
-
       return cb("'#{value}' is not valid value for any field: #{@fields._names}") if not field
       criterias[field] = value
     cb(null, criterias)
 
+  _updateable: ['product', 'priority', 'bug_severity', 'version', 'component', 'summary', 'bug_status', 'resolution', 'assigned_to', 'comment']
+
   getFields: (cb) ->
     @_doCall "Bug.fields", {}, cb
 
-  takeBug: (bug, cb) ->
-    return if @_notLoggedIn(cb)
-    @update bug, {
-      assigned_to: @user
-    }, cb
+  getUpdateableFields: (cb) ->
+    cb @_updateable
 
-  completeBug: (bug, cb) ->
-    return if @_notLoggedIn(cb)
-    @update bug, {
-      status: @options.completedInDev
-    }, cb
+  _convertBugFields: (fields) ->
+    if _.isArray(fields)
+      obj = {}
+      fields.forEach (f) ->
+        pair = f.split("=")
+        obj[pair[0]] = pair.slice(1).join("=")
+      fields = obj
+    unknownKeys = _.difference(_.keys(fields), @_updateable)
+    throw new Error("Do not know how to change these fields: #{unknownKeys.join(',')}") if unknownKeys.length > 0
+    if fields.comment
+      # Bugzilla requires hash here
+      fields.comment = {comment: fields.comment}
+    fields
 
-  update: (bug, data, cb) ->
-    data.ids = bug
-    @_doCall "Bug.update", data, cb
+  create: (fields, cb) ->
+    fields = @_convertBugFields(fields)
+    if fields.comment
+      fields.description = fields.comment.comment
+      delete fields.comment
+    @_exposeArguments fields, (fields) =>
+      @_doCall "Bug.create", fields, (err, res) ->
+        return cb(err) if err
+        cb null, res.id
+
+  update: (bug, fields, cb) ->
+    fields = @_convertBugFields(fields)
+    bug = [bug] unless _.isArray(bug)
+    fields.ids = bug
+    @_exposeArguments fields, (fields) =>
+      @_doCall "Bug.update", fields , cb
 
   _doCall: (method, params, callback) ->
     @client.methodCall method, [params], (err, body) ->
       #TODO: error handling
-      callback(err, body)
+      callback(err?.faultString, body)
 
   _notLoggedIn: (cb) ->
     if not @user
       cb("Please login first with 'login' command")
       return true
 
+  _exposeArguments: (args, cb) ->
+    values = _.clone(args)
+    for name, val of args
+      switch val
+        when "@user" then values[name] = @user
+    cb(values)
+
+  callAndReturnStatus: (method, args, callback) ->
+    @call method, args, 'status', callback
+
+  callAndReturnBug: (method, args, callback) ->
+    @call method, args, 'bug', callback
+
+  callAndReturnBugsList: (method, args, callback) ->
+    @call method, args, 'buglist', callback
+
+  #TODO: duplicate doCall?
+  #TODO: delete at all
+  call: (method, args, responseType, callback) ->
+    return if @_notLoggedIn(callback)
+    parseResult = @resultParsers[responseType]
+    throw "Cannot find result parser for response type '#{responseType}'"
+    @_exposeArguments args, (newArgs) =>
+      @_doCall method, newArgs, (err, data) =>
+        callback err, parseResult(data)
+
   close: ->
 
+  @parseResponseOfType: (type, parser) ->
+    @resultParsers[type] = parser
 
+###
+BugzillaClient.parseResponseOfType 'status', (data) ->
+  if data then 'OK' else 'Error'
 
+BugzillaClient.parseResponseOfType 'bug', (data) ->
+  data?.bugs[0]
+
+BugzillaClient.parseResponseOfType 'buglist', (data) ->
+  data?.bugs ? []
+###
 module.exports = BugzillaClient

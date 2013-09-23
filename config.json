@@ -7,5 +7,10 @@
     "login": "675819279",
     "login1": "Bug Zealot",
     "password": "chubaka1"
+  },
+  "couchdb": {
+    "url": "http://localhost",
+    "port": 5984,
+    "database": "bugzealot"
   }
 }

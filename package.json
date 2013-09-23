@@ -11,6 +11,8 @@
     "ejs": "*",
     "cradle": "*",
     "underscore": "*",
-    "columnizer": "*"
+    "columnizer": "git://github.com/AlexeyGrishin/columnizer.git",
+    "sinon": "*",
+    "transit-im": ""
   }
 }

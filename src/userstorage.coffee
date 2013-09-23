@@ -20,11 +20,12 @@ class MemoryUsersStorage
 cid = (id) ->
   "client[#{id}]"
 
+aid = (id) ->
+  "aliases[#{id}]"
+
 class CouchUsersStorage
   constructor: (options) ->
     @db = new(cradle.Connection)(options.url, options.port).database(options.database);
-
-
 
   register: (id) ->
     @db.get cid(id), (err) =>
@@ -41,6 +42,17 @@ class CouchUsersStorage
 
   unregister: (id) ->
     @db.remove cid(id)
+
+  loadAliases: (id, cb) ->
+    @db.get aid(id), (err, res) ->
+      cb res?.aliases ? []
+
+  saveAliases: (id, aliases, cb = ->) ->
+    @db.get aid(id), (err) =>
+      if err
+        @db.save aid(id), aliases: aliases, cb
+      else
+        @db.merge aid(id), aliases: aliases, cb
 
 
 module.exports = CouchUsersStorage

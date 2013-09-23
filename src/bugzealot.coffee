@@ -1,78 +1,81 @@
-transit = require('./transit/transit')
-withEjs = require('./transit/renderers/ejs')(disableCache: true)
-withColumns = require('./transit/renderers/columnizer')()
-Sessions = require('./session')
-BugzillaClient = require('./bugzilla/bugzilla')
-UsersStorage = require('./userstorage')
-aimServer = require('./transit/icq')
-fs = require('fs')
-config = null
-loadConfig = () ->
-  config = JSON.parse(fs.readFileSync('./config.json', 'utf-8'))
-setInterval loadConfig, 5000
-loadConfig()
+_ = require('underscore')
+transit = require('../node_modules/transit-im/src/transit')
+config = require('../config.json')
+storage = new (require('./userstorage'))(config.couchdb)
+Session = require('./user_session')(storage, config.bugzilla)
+ejs = require("./middleware/ejs")
+columns = require("./middleware/columns")
 
-#TODO: move out with the session
-storage = new UsersStorage url:"http://localhost", port:5984, database:"bugzealot"
+app = transit()
+#app.use transit.icq config.icq
+app.use transit.commandLine()
 
-class BugzillaSession
-  constructor: (@userId) ->
-    storage.register @userId
-    @bugzilla = new BugzillaClient("http://#{config.bugzilla.server}:#{config.bugzilla.port}")
-    #@bugzilla = new BugzillaClient("http://bugzilla.actimind.com:1111")
+app.use transit.alias storage.loadAliases.bind(storage), storage.saveAliases.bind(storage)
 
-  postCreate: (cb) ->
-    storage.load @userId, (err, @data) =>
-      if @data?.username
-        @bugzilla.login @data.username, @data.password, cb
-      else
-        cb()
+app.use transit.html2txt()
+app.use transit.commandParser()
+app.use transit.sessions sessionClass:Session
 
-  onLogin: (username, password) ->
-    storage.put @userId, {username, password}
+app.formatOutput "json",    transit.chain transit.chain.json()
+app.formatOutput "ejs",     transit.chain ejs(disableCache: true), transit.chain.wrapHtml()
+app.formatOutput "columns", transit.chain columns(50), transit.chain.splitByPortions(2000), transit.chain.wrapHtml()
+app.formatOutput "ok",      (data, options, cb) -> cb(data ? "OK")
+app.formatOutput transit.chain transit.chain.wrapHtml()
 
-  close: ->
-    @bugzilla.close()
-
-
-transit.use(transit.parseRequest)
-transit.use(transit.findPattern)
-#transit.use(transit.commandLine)
-transit.use(aimServer(config.icq))
-transit.use(new Sessions(sessionClass: BugzillaSession))
-transit.use(transit.renderWith(
-  ((error) -> error.toString()),
-  ((data) -> JSON.stringify(data, null, 4)))
-)
+help =
+  login:
+    autohelp: "logins to the bugzilla. Your login and password will be saved and used next time for auto login.
+      You may use this command to change user"
+  get:
+    autohelp: "gets full information about bug with specified id"
+  list:
+    autohelp: "prints a list of bugs where one of the fields matches provided options, for example: 'list Product1 CONFIRMED'"
+  update:
+    autohelp: "updates bug (or several bugs) with specified bug ids (comma separated)."
+  updateList:
+    autohelp: "combines list (to find bugs by some criteria) and update (to change them). Note that list options shall be in quotes in this case, like 'updateList \"Product2 CONFIRMED\" assigned_to=user@acme.com '"
 
 
-transit.on 'login {username} {password}', (req, res) ->
-  req.session.bugzilla.login req.username, req.password, (err) ->
+
+app.receive 'login {username} {password}', (req, res) ->
+  req.session.bugzilla.login req.attrs.username, req.attrs.password, (err) ->
     req.session.onLogin req.username, req.password
-    res.sendBack if err then err else "OK"
+    res.ok err
 
 
-transit.on 'get {bug}', (req, res) ->
-  req.session.bugzilla.getBug req.bug, res.render withEjs("bug")
+app.receive 'get {bug}', (req, res) ->
+  req.session.bugzilla.getBug req.attrs.bug, (err, data) ->
+    return res.sendBack err if err
+    res.ejs data, "bug"
 
-transit.on 'list {{options}}', (req, res) ->
-  req.session.bugzilla.listBugs req.options, res.render withColumns {
-    id: null,
-    priority: ((p, item) -> "#{p}/#{item.severity}"),
-    product: null,
-    summary: null,
-    status: ((_) -> "[#{_}]"),
-    assigned_to: (_) -> " -> #{_}"
+app.receive 'list {{options}}', (req, res) ->
+  req.session.bugzilla.listBugs req.attrs.options, (err, data) ->
+    return res.sendBack(err) if err
+    res.columns data, {
+      id: null,
+      priority: ((p, item) -> "#{p}/#{item.severity}"),
+      product: null,
+      summary: null,
+      status: ((_) -> "[#{_}]"),
+      assigned_to: (_) -> " -> #{_}"
+    }
 
-  }
+app.receive 'update {commaSeparatedBugList} {{keyValuePairs}}', (req, res) ->
+  req.session.bugzilla.update req.attrs.commaSeparatedBugList.split(","), req.attrs.keyValuePairs, res.ok
 
-transit.on 'fields', (req, res) ->
-  req.session.bugzilla.getFields res.render withEjs("fields")
+app.receive 'updateList {listOptions} {{keyValuePairs}}', (req, res) ->
+  req.session.bugzilla.listBugs req.attrs.listOptions.split(" "), (err, data) ->
+    return res.sendBack err if err
+    return res.sendBack "No bugs to update :(" if data.length == 0
+    req.session.bugzilla.update _.pluck(data, "id"), req.attrs.keyValuePairs, res.ok
 
-transit.on 'take {bug}', (req, res) ->
-  req.session.bugzilla.takeBug req.bug, res.render -> "OK"
+app.receive 'create {{keyValuePairs}}', (req, res) ->
+  req.session.bugzilla.create req.attrs.keyValuePairs, (err, data) ->
+    res.sendBack err ? data
 
-transit.on 'done {bug}', (req, res) ->
-  req.session.bugzilla.completeBug req.bug, res.render -> "OK"
+app.receive 'fieldsInfo', (req, res) ->
+  req.session.bugzilla.getUpdateableFields (fields) -> res.sendBack fields
 
-transit.start()
+app.use transit.autohelp()
+
+app.start()
